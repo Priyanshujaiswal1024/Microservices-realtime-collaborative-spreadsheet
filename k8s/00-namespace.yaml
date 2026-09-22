@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: collab-spreadsheet
+  labels:
+    name: collab-spreadsheet
+    app.kubernetes.io/part-of: real-time-collaborative-spreadsheet

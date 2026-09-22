@@ -1,0 +1,127 @@
+# Compiled class files
+*.class
+
+# Log files
+*.log
+
+# BlueJ files
+*.ctxt
+
+# Mobile Tools for Java (J2ME)
+.mtj.tmp/
+
+# Package Files
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# Virtual machine crash logs
+hs_err_pid*
+replay_pid*
+
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# IntelliJ IDEA
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+
+# Eclipse
+.classpath
+.project
+.settings/
+bin/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# NetBeans
+nbproject/private/
+nbbuild/
+dist/
+nbdist/
+.nb-gradle/
+
+# Spring Boot
+spring-boot-starter-parent/
+
+# Logs
+logs/
+*.log.*
+
+# Application properties with secrets
+**/application-local.yml
+**/application-local.properties
+**/application-secrets.yml
+**/application-secrets.properties
+
+# Docker volumes
+docker-data/
+postgres-data/
+redis-data/
+kafka-data/
+
+# Node modules (frontend)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Frontend build
+frontend/dist/
+frontend/dist-ssr/
+frontend/.vite/
+frontend/.env.local
+frontend/.env.*.local
+
+# OS Files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Temp files
+*.tmp
+*.bak
+*.swp
+*~.nib
+local.properties
+
+# Test coverage
+coverage/
+*.lcov
+
+# JaCoCo
+jacoco.exec
+
+# Kubernetes secrets
+k8s/secrets/
+k8s/*-secret.yaml
+
+# AWS credentials
+.aws/
+aws-credentials.properties
+
+# Local config override
+config-repo-local/
+
+# Project exclude paths
+/frontend/src/services/api.js

@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-config
+  namespace: collab-spreadsheet
+data:
+  SPRING_PROFILES_ACTIVE: "prod"
+  EUREKA_SERVER_URL: "http://eureka-server.collab-spreadsheet.svc.cluster.local:8761/eureka/"
+  CONFIG_SERVER_URL: "http://config-server.collab-spreadsheet.svc.cluster.local:8888"
+  KAFKA_BOOTSTRAP_SERVERS: "kafka.collab-spreadsheet.svc.cluster.local:9092"
+  REDIS_HOST: "redis.collab-spreadsheet.svc.cluster.local"
+  REDIS_PORT: "6379"
+  POSTGRES_HOST: "postgres.collab-spreadsheet.svc.cluster.local"
+  POSTGRES_PORT: "5432"

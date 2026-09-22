@@ -1,0 +1,61 @@
+server:
+  port: 8086
+
+spring:
+  application:
+    name: audit-service
+  
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/auditdb
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:2401301024}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 15
+      minimum-idle: 5
+  
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+    schemas: public
+
+# Kafka consumer configuration
+spring.kafka:
+  consumer:
+    group-id: audit-service-group
+    max-poll-records: 100
+    properties:
+      isolation.level: read_committed
+
+# Redis for deduplication
+spring.data.redis:
+  database: 5
+
+# Event sourcing configuration
+audit:
+  # Retention policy
+  retention-days: 365
+  
+  # Snapshot configuration
+  snapshot:
+    enabled: true
+    interval-events: 100
+    compression: true
+  
+  # Restore configuration
+  restore:
+    batch-size: 1000
+    timeout-seconds: 300
+
+# Deduplication
+deduplication:
+  ttl-seconds: 3600  # 1 hour

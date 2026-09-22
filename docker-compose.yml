@@ -1,0 +1,200 @@
+version: '3.8'
+
+services:
+  # PostgreSQL - Primary database for all services
+  postgres:
+    image: postgres:16-alpine
+    container_name: collab-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 2401301024
+      POSTGRES_DB: collabdb
+      POSTGRES_MULTIPLE_DATABASES: userdb,sheetdb,commentdb,notificationdb,auditdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d
+    networks:
+      - collab-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d collabdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis - For CRDT state, Pub/Sub, Streams, caching, and rate limiting
+  redis:
+    image: redis:7-alpine
+    container_name: collab-redis
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - collab-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Zookeeper - Required for Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: collab-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-logs:/var/lib/zookeeper/log
+    networks:
+      - collab-network
+    healthcheck:
+      test: echo stat | nc localhost 2181
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Kafka - Event streaming backbone
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: collab-kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - collab-network
+    healthcheck:
+      test: kafka-broker-api-versions --bootstrap-server localhost:9092
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  # Kafka UI - Web interface for Kafka management
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: collab-kafka-ui
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_CLUSTERS_0_NAME: collab-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    ports:
+      - "8090:8080"
+    networks:
+      - collab-network
+
+  # Init Kafka Topics - Creates required topics on startup
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: collab-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      "
+      echo 'Waiting for Kafka to be ready...'
+      sleep 10
+      
+      echo 'Creating Kafka topics...'
+      
+      # Cell edits topic - partitioned by sheetId for ordering
+      kafka-topics --create --if-not-exists \
+        --bootstrap-server kafka:9092 \
+        --topic cell-edits \
+        --partitions 10 \
+        --replication-factor 1 \
+        --config retention.ms=604800000 \
+        --config compression.type=snappy
+      
+      # Sheet lifecycle events - partitioned by workbookId
+      kafka-topics --create --if-not-exists \
+        --bootstrap-server kafka:9092 \
+        --topic sheet-lifecycle \
+        --partitions 5 \
+        --replication-factor 1 \
+        --config retention.ms=2592000000
+      
+      # Comments topic - partitioned by workbookId
+      kafka-topics --create --if-not-exists \
+        --bootstrap-server kafka:9092 \
+        --topic comments \
+        --partitions 5 \
+        --replication-factor 1 \
+        --config retention.ms=2592000000
+      
+      # Notifications topic - partitioned by userId
+      kafka-topics --create --if-not-exists \
+        --bootstrap-server kafka:9092 \
+        --topic notifications \
+        --partitions 10 \
+        --replication-factor 1 \
+        --config retention.ms=604800000
+      
+      echo 'Kafka topics created successfully!'
+      kafka-topics --list --bootstrap-server kafka:9092
+      "
+    networks:
+      - collab-network
+
+  # MailHog - Email testing server (SMTP stub)
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: collab-mailhog
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
+    networks:
+      - collab-network
+
+  # Adminer - Database management UI
+  adminer:
+    image: adminer:latest
+    container_name: collab-adminer
+    depends_on:
+      - postgres
+    ports:
+      - "8091:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    networks:
+      - collab-network
+
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  zookeeper-data:
+    driver: local
+  zookeeper-logs:
+    driver: local
+  kafka-data:
+    driver: local
+
+networks:
+  collab-network:
+    driver: bridge

@@ -1,0 +1,244 @@
+version: '3.8'
+
+services:
+  # ---------------- Infrastructure Layer ----------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: collab-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 2401301024
+      POSTGRES_DB: collabdb
+      POSTGRES_MULTIPLE_DATABASES: userdb,sheetdb,commentdb,notificationdb,auditdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d
+    networks:
+      - collab-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: collab-redis
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - collab-network
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: collab-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - collab-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: collab-kafka
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - collab-network
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: collab-mailhog
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - collab-network
+
+  # ---------------- Core Microservices ----------------
+  config-server:
+    build:
+      context: ./config-server
+    container_name: collab-config-server
+    ports:
+      - "8888:8888"
+    networks:
+      - collab-network
+
+  eureka-server:
+    build:
+      context: ./eureka-server
+    container_name: collab-eureka-server
+    depends_on:
+      - config-server
+    ports:
+      - "8761:8761"
+    environment:
+      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+    networks:
+      - collab-network
+
+  user-service:
+    build:
+      context: ./user-service
+    container_name: collab-user-service
+    depends_on:
+      - postgres
+      - redis
+      - eureka-server
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/userdb
+      SPRING_DATA_REDIS_HOST: redis
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+    networks:
+      - collab-network
+
+  sheet-service:
+    build:
+      context: ./sheet-service
+    container_name: collab-sheet-service
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+      - eureka-server
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/sheetdb
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+    networks:
+      - collab-network
+
+  collab-service:
+    build:
+      context: ./collab-service
+    container_name: collab-collab-service
+    depends_on:
+      - redis
+      - kafka
+      - eureka-server
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+    networks:
+      - collab-network
+
+  comment-service:
+    build:
+      context: ./comment-service
+    container_name: collab-comment-service
+    depends_on:
+      - postgres
+      - kafka
+      - eureka-server
+    ports:
+      - "8084:8084"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/commentdb
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+    networks:
+      - collab-network
+
+  notification-service:
+    build:
+      context: ./notification-service
+    container_name: collab-notification-service
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+      - eureka-server
+    ports:
+      - "8085:8085"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/notificationdb
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+    networks:
+      - collab-network
+
+  audit-service:
+    build:
+      context: ./audit-service
+    container_name: collab-audit-service
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+      - eureka-server
+    ports:
+      - "8086:8086"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/auditdb
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+    networks:
+      - collab-network
+
+  api-gateway:
+    build:
+      context: ./api-gateway
+    container_name: collab-api-gateway
+    depends_on:
+      - eureka-server
+      - redis
+    ports:
+      - "8080:8080"
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+    networks:
+      - collab-network
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: collab-frontend
+    depends_on:
+      - api-gateway
+    ports:
+      - "80:80"
+    networks:
+      - collab-network
+
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  kafka-data:
+    driver: local
+
+networks:
+  collab-network:
+    driver: bridge

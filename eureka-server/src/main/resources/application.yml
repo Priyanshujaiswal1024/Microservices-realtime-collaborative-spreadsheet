@@ -1,0 +1,79 @@
+server:
+  port: 8761
+
+spring:
+  application:
+    name: eureka-server
+
+# Eureka server configuration
+eureka:
+  instance:
+    hostname: localhost
+    prefer-ip-address: false
+  
+  client:
+    # Don't register itself as a client
+    register-with-eureka: false
+    fetch-registry: false
+    service-url:
+      defaultZone: http://${eureka.instance.hostname}:${server.port}/eureka/
+  
+  server:
+    # Disable self-preservation mode in development (enable in production)
+    enable-self-preservation: false
+    
+    # How often to run the eviction task (milliseconds)
+    eviction-interval-timer-in-ms: 5000
+    
+    # Peer node update retry interval
+    peer-node-read-timeout-ms: 1000
+    
+    # Response cache settings
+    response-cache-update-interval-ms: 5000
+    response-cache-auto-expiration-in-seconds: 180
+    
+    # Renewal settings
+    renewal-percent-threshold: 0.85
+    renewal-threshold-update-interval-ms: 15000
+    
+    # Wait time before allowing clients to fetch registry
+    wait-time-in-ms-when-sync-empty: 0
+
+# Management endpoints
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,env
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+# Logging
+logging:
+  level:
+    com.netflix.eureka: INFO
+    com.netflix.discovery: INFO
+    org.springframework.cloud: INFO
+    com.collab.spreadsheet: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+---
+# Production profile
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+eureka:
+  server:
+    # Enable self-preservation in production
+    enable-self-preservation: true
+    
+    # More conservative settings for production
+    eviction-interval-timer-in-ms: 60000
+    response-cache-update-interval-ms: 30000

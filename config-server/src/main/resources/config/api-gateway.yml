@@ -1,0 +1,146 @@
+server:
+  port: 8088
+
+spring:
+  application:
+    name: api-gateway
+  
+  cloud:
+    gateway:
+      # Global CORS configuration
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}
+            allowed-methods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - PATCH
+              - OPTIONS
+            allowed-headers: "*"
+            allow-credentials: true
+            max-age: 3600
+      
+      # Service routes
+      routes:
+        # User Service
+        - id: user-service
+          uri: lb://user-service
+          predicates:
+            - Path=/api/v1/auth/**,/api/v1/users/**,/api/auth/**,/api/users/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: user-service-cb
+                fallbackUri: forward:/fallback/user-service
+        
+        # Comment Service (placed before sheet-service to handle /comments subpaths)
+        - id: comment-service
+          uri: lb://comment-service
+          predicates:
+            - Path=/api/v1/comments/**,/api/comments/**,/api/v1/sheets/*/comments/**,/api/v1/workbooks/*/comments/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: comment-service-cb
+                fallbackUri: forward:/fallback/comment-service
+
+        # Sheet Service
+        - id: sheet-service
+          uri: lb://sheet-service
+          predicates:
+            - Path=/api/v1/workbooks/**,/api/v1/sheets/**,/api/workbooks/**,/api/sheets/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: sheet-service-cb
+                fallbackUri: forward:/fallback/sheet-service
+        
+        # Collab Service (WebSocket & State)
+        - id: collab-service-ws
+          uri: lb:ws://collab-service
+          predicates:
+            - Path=/ws/**
+        
+        - id: collab-service-http
+          uri: lb://collab-service
+          predicates:
+            - Path=/api/v1/collab/**,/api/collab/**
+        
+        # Notification Service
+        - id: notification-service
+          uri: lb://notification-service
+          predicates:
+            - Path=/api/v1/notifications/**,/api/notifications/**
+        
+        # Audit Service
+        - id: audit-service
+          uri: lb://audit-service
+          predicates:
+            - Path=/api/v1/audit/**,/api/audit/**
+
+      # Default filters
+      default-filters:
+        - name: Retry
+          args:
+            retries: 3
+            statuses: BAD_GATEWAY,SERVICE_UNAVAILABLE
+            methods: GET,POST,PUT,DELETE
+            backoff:
+              firstBackoff: 100ms
+              maxBackoff: 500ms
+              factor: 2
+
+# Redis for rate limiting
+spring.data.redis:
+  database: 6
+
+# JWT configuration
+jwt:
+  secret: ${JWT_SECRET:your-256-bit-secret-change-this-in-production-please-use-env-variable}
+
+# Rate limiting configuration
+rate-limiting:
+  enabled: true
+  default-limit: 100
+  default-window-seconds: 60
+
+# Resilience4j Circuit Breaker & TimeLimiter
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+    instances:
+      user-service-cb:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+      sheet-service-cb:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+      comment-service-cb:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+  timelimiter:
+    configs:
+      default:
+        timeout-duration: 15s
+        cancel-running-future: true
+    instances:
+      user-service-cb:
+        timeout-duration: 15s
+      sheet-service-cb:
+        timeout-duration: 15s
+      comment-service-cb:
+        timeout-duration: 15s
+
+logging:
+  level:
+    org.springframework.cloud.gateway: DEBUG
