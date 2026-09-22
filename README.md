@@ -32,43 +32,43 @@ flowchart TB
     end
 
     subgraph Edge["Gateway & Discovery Layer"]
-        GW["Spring Cloud API Gateway\n(Port 8080)\n• JWT Authentication\n• Rate Limiting\n• Reverse Proxy Routing"]
-        EUR["Netflix Eureka Server\n(Port 8761)\n• Service Registry & Health Checks"]
-        CFG["Spring Cloud Config Server\n(Port 8888)\n• Git-Backed Centralized Config"]
+        GW["Spring Cloud API Gateway<br/>(Port 8080)<br/>• JWT Authentication<br/>• Rate Limiting<br/>• Reverse Proxy Routing"]
+        EUR["Netflix Eureka Server<br/>(Port 8761)<br/>• Service Registry & Health Checks"]
+        CFG["Spring Cloud Config Server<br/>(Port 8888)<br/>• Git-Backed Centralized Config"]
     end
 
     subgraph HotPath["Hot Path (In-Memory Real-Time Cluster)"]
-        CS1["Collab Service - Pod 1\n(Port 8083)"]
-        CS2["Collab Service - Pod 2\n(Port 8083)"]
-        REDIS[("Redis 7 In-Memory Cluster\n───────────────────────\n• Hashes: sheet:{id}:cells (Current State)\n• Streams: sheet:{id}:ops (Replay Buffer)\n• Pub/Sub: sheet:{id}:broadcast (Multi-Pod Bus)")]
+        CS1["Collab Service - Pod 1<br/>(Port 8083)"]
+        CS2["Collab Service - Pod 2<br/>(Port 8083)"]
+        REDIS[("Redis 7 In-Memory Cluster<br/>• Hashes: sheet:id:cells (Current State)<br/>• Streams: sheet:id:ops (Replay Buffer)<br/>• Pub/Sub: sheet:id:broadcast (Multi-Pod Bus)")]
     end
 
     subgraph ColdPath["Cold Path (Durable Event-Driven Microservices)"]
-        KAFKA{{"Apache Kafka Event Bus\nTopics: cell-edits, sheet-lifecycle, comments, notifications"}}
-        SS["Sheet Service (Port 8082)\n• Workbook / Sheet / Cell CRUD\n• Apache POI Excel Import/Export"]
-        US["User Service (Port 8081)\n• Auth, JWT, RBAC"]
-        CMS["Comment Service (Port 8084)\n• Cell Comments, Threads, @Mentions"]
-        NS["Notification Service (Port 8085)\n• Real-Time User Alerts"]
-        AS["Audit Service (Port 8086)\n• Event Sourcing & Point-in-Time Recovery"]
+        KAFKA{{"Apache Kafka Event Bus<br/>Topics: cell-edits, sheet-lifecycle, comments, notifications"}}
+        SS["Sheet Service (Port 8082)<br/>• Workbook / Sheet / Cell CRUD<br/>• Apache POI Excel Import/Export"]
+        US["User Service (Port 8081)<br/>• Auth, JWT, RBAC"]
+        CMS["Comment Service (Port 8084)<br/>• Cell Comments, Threads, @Mentions"]
+        NS["Notification Service (Port 8085)<br/>• Real-Time User Alerts"]
+        AS["Audit Service (Port 8086)<br/>• Event Sourcing & Point-in-Time Recovery"]
     end
 
     subgraph Storage["Persistent Relational Storage"]
-        PG[("PostgreSQL 15 Instances\n• user_db, sheet_db, comment_db, audit_db")]
+        PG[("PostgreSQL 15 Instances<br/>• user_db, sheet_db, comment_db, audit_db")]
     end
 
     %% Client Connections
-    C1 <== "WebSocket (STOMP / WSS)" ==> CS1
-    C2 <== "WebSocket (STOMP / WSS)" ==> CS2
-    C3 --> "HTTP REST / HTTPS" --> GW
+    C1 <-->|"WebSocket (STOMP / WSS)"| CS1
+    C2 <-->|"WebSocket (STOMP / WSS)"| CS2
+    C3 -->|"HTTP REST / HTTPS"| GW
 
-    GW <==> EUR
-    CS1 <==> EUR
-    CS2 <==> EUR
-    SS <==> EUR
-    US <==> EUR
-    CMS <==> EUR
-    NS <==> EUR
-    AS <==> EUR
+    GW <--> EUR
+    CS1 <--> EUR
+    CS2 <--> EUR
+    SS <--> EUR
+    US <--> EUR
+    CMS <--> EUR
+    NS <--> EUR
+    AS <--> EUR
 
     GW --> CS1
     GW --> CS2
@@ -78,24 +78,24 @@ flowchart TB
     GW --> AS
 
     %% Hot Path Interactions
-    CS1 <==> REDIS
-    CS2 <==> REDIS
+    CS1 <--> REDIS
+    CS2 <--> REDIS
 
     %% Cold Path Streaming
-    CS1 -. "Async Event (CellEditEvent)" .-> KAFKA
-    CS2 -. "Async Event (CellEditEvent)" .-> KAFKA
+    CS1 -.->|"Async Event (CellEditEvent)"| KAFKA
+    CS2 -.->|"Async Event (CellEditEvent)"| KAFKA
     SS -.-> KAFKA
     CMS -.-> KAFKA
 
-    KAFKA ==> SS
-    KAFKA ==> NS
-    KAFKA ==> AS
+    KAFKA --> SS
+    KAFKA --> NS
+    KAFKA --> AS
 
     %% DB Storage
-    SS ==> PG
-    US ==> PG
-    CMS ==> PG
-    AS ==> PG
+    SS --> PG
+    US --> PG
+    CMS --> PG
+    AS --> PG
 ```
 
 ---
@@ -154,9 +154,9 @@ Our collaboration engine coordinates three specialized tiers of Redis data struc
 ```mermaid
 flowchart LR
     subgraph HotPathStorage["Redis Collaboration Engine"]
-        T1["Tier 1: Redis Hash\nKey: sheet:{id}:cells\nField: row:col\nValue: CellState JSON\n────────────────\n• Current State Snapshot\n• O(1) mutations via HSET/HGET\n• Ziplist to Hashtable memory auto-optimization"]
-        T2["Tier 2: Redis Streams\nKey: sheet:{id}:ops\nID: timestamp-sequence\nValue: Operation Payload\n────────────────\n• Reconnection Replay Buffer\n• Bounded sliding window: MAXLEN ~ 1000\n• Radix-Tree O(log N) seeking via XRANGE"]
-        T3["Tier 3: Redis Pub/Sub\nChannel: sheet:{id}:broadcast\n────────────────\n• Ephemeral Multi-Pod Fan-out\n• Pattern matching: sheet:*:broadcast\n• Sub-millisecond cross-pod routing"]
+        T1["Tier 1: Redis Hash<br/>Key: sheet:id:cells<br/>Field: row:col<br/>Value: CellState JSON<br/>• Current State Snapshot<br/>• O(1) mutations via HSET/HGET<br/>• Ziplist to Hashtable auto-optimization"]
+        T2["Tier 2: Redis Streams<br/>Key: sheet:id:ops<br/>ID: timestamp-sequence<br/>Value: Operation Payload<br/>• Reconnection Replay Buffer<br/>• Bounded sliding window: MAXLEN ~ 1000<br/>• Radix-Tree O(log N) seeking via XRANGE"]
+        T3["Tier 3: Redis Pub/Sub<br/>Channel: sheet:id:broadcast<br/>• Ephemeral Multi-Pod Fan-out<br/>• Pattern matching: sheet:*:broadcast<br/>• Sub-millisecond cross-pod routing"]
     end
 ```
 
@@ -190,11 +190,11 @@ Distributed concurrent writes are resolved deterministically using an **LWW-Elem
 
 ```mermaid
 flowchart TD
-    Start["Two Concurrent Edits Arrive for Same Cell"] --> Step1{"Step 1:\nCompare Physical Time\nLong.compare(hlc1.physical, hlc2.physical)"}
+    Start["Two Concurrent Edits Arrive for Same Cell"] --> Step1{"Step 1:<br/>Compare Physical Time<br/>Long.compare(hlc1.physical, hlc2.physical)"}
     Step1 -- "physical1 != physical2" --> Winner1["Larger Physical Time Wins!"]
-    Step1 -- "physical1 == physical2 (Tie)" --> Step2{"Step 2:\nCompare Logical Counter\nLong.compare(hlc1.counter, hlc2.counter)"}
+    Step1 -- "physical1 == physical2 (Tie)" --> Step2{"Step 2:<br/>Compare Logical Counter<br/>Long.compare(hlc1.counter, hlc2.counter)"}
     Step2 -- "counter1 != counter2" --> Winner2["Higher Logical Counter Wins!"]
-    Step2 -- "counter1 == counter2 (Tie)" --> Step3["Step 3:\nLexicographical Client ID Tie-Breaker\nclientId1.compareTo(clientId2)"]
+    Step2 -- "counter1 == counter2 (Tie)" --> Step3["Step 3:<br/>Lexicographical Client ID Tie-Breaker<br/>clientId1.compareTo(clientId2)"]
     Step3 --> Winner3["Alphabetically Greater Client ID Wins!"]
 ```
 
@@ -227,15 +227,15 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    CS["collab-service\n(Producer)"] -- "Topic: cell-edits\nKey: sheetId" --> K1{{"cell-edits"}}
-    SS["sheet-service\n(Producer)"] -- "Topic: sheet-lifecycle\nKey: workbookId" --> K2{{"sheet-lifecycle"}}
-    CMS["comment-service\n(Producer)"] -- "Topic: comments\nKey: workbookId" --> K3{{"comments"}}
+    CS["collab-service<br/>(Producer)"] -->|"Topic: cell-edits<br/>Key: sheetId"| K1[("cell-edits")]
+    SS["sheet-service<br/>(Producer)"] -->|"Topic: sheet-lifecycle<br/>Key: workbookId"| K2[("sheet-lifecycle")]
+    CMS["comment-service<br/>(Producer)"] -->|"Topic: comments<br/>Key: workbookId"| K3[("comments")]
 
-    K1 --> SS_C["sheet-service\n(Consumer: DB Persistence)"]
-    K1 --> AS_C["audit-service\n(Consumer: Audit & PITR)"]
+    K1 --> SS_C["sheet-service<br/>(Consumer: DB Persistence)"]
+    K1 --> AS_C["audit-service<br/>(Consumer: Audit & PITR)"]
 
     K2 --> AS_C
-    K2 --> NS_C["notification-service\n(Consumer: Alerts)"]
+    K2 --> NS_C["notification-service<br/>(Consumer: Alerts)"]
 
     K3 --> NS_C
 ```
