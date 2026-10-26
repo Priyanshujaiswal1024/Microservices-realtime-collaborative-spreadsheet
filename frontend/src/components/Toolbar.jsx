@@ -152,6 +152,7 @@ export default function Toolbar() {
             <GoogleColorPalette
               currentColor={currentFormat.textColor}
               onSelectColor={(col) => setTextColor(col)}
+              onHoverColor={previewTextColor}
               onClose={() => setActivePalette(null)}
               title="Text color"
             />
@@ -185,6 +186,7 @@ export default function Toolbar() {
             <GoogleColorPalette
               currentColor={currentFormat.backgroundColor}
               onSelectColor={(col) => setBgColor(col)}
+              onHoverColor={previewBgColor}
               onClose={() => setActivePalette(null)}
               title="Fill color"
             />

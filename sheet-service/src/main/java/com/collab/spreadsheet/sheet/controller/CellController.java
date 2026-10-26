@@ -41,7 +41,7 @@ public class CellController {
             @PathVariable String sheetId,
             @RequestBody BulkCellUpdateRequest request,
             Authentication authentication) {
-        String userId = (String) authentication.getPrincipal();
+        String userId = authentication != null ? (String) authentication.getPrincipal() : "anonymous";
         log.info("REST request to bulk update cells in sheet {} by user {}", sheetId, userId);
         List<CellDto> updated = cellService.bulkUpsertCells(sheetId, request, userId);
         return ResponseEntity.ok(updated);

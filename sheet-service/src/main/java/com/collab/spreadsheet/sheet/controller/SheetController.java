@@ -28,7 +28,7 @@ public class SheetController {
             @PathVariable String workbookId,
             @Valid @RequestBody CreateSheetRequest request,
             Authentication authentication) {
-        String userId = (String) authentication.getPrincipal();
+        String userId = authentication != null ? (String) authentication.getPrincipal() : "anonymous";
         log.info("REST request to add sheet '{}' to workbook {} by {}", request.getName(), workbookId, userId);
         SheetDto sheet = sheetService.createSheet(workbookId, request, userId);
         return ResponseEntity.status(HttpStatus.CREATED).body(sheet);
@@ -57,7 +57,7 @@ public class SheetController {
             @PathVariable String sheetId,
             @Valid @RequestBody UpdateSheetRequest request,
             Authentication authentication) {
-        String userId = (String) authentication.getPrincipal();
+        String userId = authentication != null ? (String) authentication.getPrincipal() : "anonymous";
         SheetDto updated = sheetService.updateSheet(sheetId, request, userId);
         return ResponseEntity.ok(updated);
     }
@@ -66,7 +66,7 @@ public class SheetController {
     public ResponseEntity<Map<String, String>> deleteSheet(
             @PathVariable String sheetId,
             Authentication authentication) {
-        String userId = (String) authentication.getPrincipal();
+        String userId = authentication != null ? (String) authentication.getPrincipal() : "anonymous";
         sheetService.deleteSheet(sheetId, userId);
         return ResponseEntity.ok(Map.of("message", "Sheet deleted successfully"));
     }

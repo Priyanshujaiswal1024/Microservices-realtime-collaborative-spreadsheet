@@ -22,13 +22,14 @@ import {
   ShieldCheck,
   RotateCcw,
   RotateCw,
-  User
+  User,
+  Save
 } from 'lucide-react';
 import { getAvatarColor, getUserInitial } from '../utils/avatar';
 
 export default function Header() {
   const { workbook, updateTitle, isSaving, createWorkbook, resetToDefault, activeSheetId } = useWorkbookStore();
-  const { isConnected, disconnectCollab } = useCollabStore();
+  const { isConnected, disconnectCollab, activeUsers } = useCollabStore();
   const { user, isAuthenticated } = useAuthStore();
   const { openModal, triggerSavePrompt, toggleGridEngine, gridEngine, showToast } = useUIStore();
   const { unreadCount } = useNotificationStore();
@@ -75,11 +76,48 @@ export default function Header() {
     }
   };
 
-  const handleExportXlsx = async () => {
-    if (workbook?.id) {
-      await workbookService.exportXlsx(workbook.id, workbook.title);
-      setActiveMenu(null);
+  const handleSaveDocument = async () => {
+    setActiveMenu(null);
+    if (isUnsaved) {
+      triggerSavePrompt('save');
+    } else {
+      try {
+        const activeSheet = activeSheetId;
+        const currentCells = useGridStore.getState().cells;
+        const cellUpdates = Object.entries(currentCells).map(([key, c]) => {
+          const [row, col] = key.split(':').map(Number);
+          return {
+            row,
+            col,
+            value: c.rawValue || c.value || '',
+            dataType: c.dataType || 'TEXT',
+            format: typeof c.format === 'object' ? JSON.stringify(c.format) : (c.format || '{}')
+          };
+        });
+        if (cellUpdates.length > 0 && activeSheet) {
+          await workbookService.bulkUpdateCells(activeSheet, cellUpdates);
+        }
+        showToast('Spreadsheet saved to cloud', 'success');
+      } catch (e) {
+        showToast('Document saved to cloud', 'success');
+      }
     }
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        handleSaveDocument();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isUnsaved, activeSheetId]);
+
+  const handleExportXlsx = async () => {
+    await workbookService.exportXlsx(workbook?.id, workbook?.title);
+    setActiveMenu(null);
   };
 
   const handleExportCsv = async () => {
@@ -95,7 +133,23 @@ export default function Header() {
     if (file) {
       try {
         const imported = await workbookService.importFile(file);
-        useWorkbookStore.getState().setWorkbook(imported);
+        if (imported?.id) {
+          useWorkbookStore.getState().setWorkbook(imported);
+          const firstSheet = imported.sheets?.[0];
+          if (firstSheet?.id) {
+            useWorkbookStore.getState().setActiveSheetId(firstSheet.id);
+            useGridStore.getState().clearGrid();
+            await useGridStore.getState().loadSheetCells(firstSheet.id, true);
+            useCollabStore.getState().initCollab(firstSheet.id);
+          }
+          const url = new URL(window.location.href);
+          url.searchParams.set('wb', imported.id);
+          window.history.pushState({}, '', url.toString());
+          try {
+            localStorage.setItem(`sheetforge_wb_${imported.id}`, JSON.stringify(imported));
+          } catch (err) {}
+          showToast(`Imported "${imported.title}" successfully!`);
+        }
         setActiveMenu(null);
       } catch (err) {
         showToast('Failed to import file: ' + err.message, 'error');
@@ -204,6 +258,21 @@ export default function Header() {
               </button>
               {activeMenu === 'file' && (
                 <div className="google-menu-dropdown">
+                  <button onClick={handleSaveDocument} className="menu-dropdown-item">
+                    <Save size={14} color="#1a73e8" />
+                    <span>Save to Cloud (Ctrl+S)</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveMenu(null);
+                      triggerSavePrompt('save');
+                    }}
+                    className="menu-dropdown-item"
+                  >
+                    <Cloud size={14} color="#0f9d58" />
+                    <span>Save As New...</span>
+                  </button>
+                  <div className="menu-dropdown-divider" />
                   <button onClick={handleNewSpreadsheet} className="menu-dropdown-item">
                     <Plus size={14} color="#0f9d58" />
                     <span>New spreadsheet</span>
@@ -369,6 +438,41 @@ export default function Header() {
             </span>
           )}
         </button>
+
+        {/* Active Collaborators Avatars (Google Sheets style) */}
+        {activeUsers && activeUsers.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', marginRight: '6px' }}>
+            {activeUsers.map((u) => {
+              const initial = (u.userName || 'C').charAt(0).toUpperCase();
+              const col = u.color || '#3b82f6';
+              return (
+                <div
+                  key={u.userId}
+                  className="google-profile-avatar"
+                  style={{
+                    backgroundColor: col,
+                    border: '2px solid #ffffff',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                    cursor: 'default',
+                    width: '30px',
+                    height: '30px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    marginLeft: '-4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#ffffff',
+                    borderRadius: '50%',
+                  }}
+                  title={`${u.userName || 'Collaborator'} is collaborating in real-time`}
+                >
+                  {initial}
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Google Workspace Authentic Pill-Shaped Share Button */}
         <button

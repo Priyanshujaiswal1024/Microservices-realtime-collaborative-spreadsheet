@@ -22,11 +22,27 @@ public class ExportImportController {
 
     private final ExcelExportImportService exportImportService;
 
+    @PostMapping("/workbooks/export/xlsx")
+    public ResponseEntity<byte[]> exportLiveWorkbookToXlsx(
+            @RequestBody com.collab.spreadsheet.sheet.dto.LiveWorkbookExportRequest request) throws IOException {
+        String title = request != null && request.getTitle() != null && !request.getTitle().isBlank()
+                ? request.getTitle() : "spreadsheet";
+        log.info("REST request to export live workbook '{}' to XLSX with styles and colors", title);
+        byte[] bytes = exportImportService.exportLiveToXlsx(request);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
+        headers.setContentDispositionFormData("attachment", title + ".xlsx");
+        headers.setContentLength(bytes.length);
+
+        return new ResponseEntity<>(bytes, headers, HttpStatus.OK);
+    }
+
     @GetMapping("/workbooks/{workbookId}/export/xlsx")
     public ResponseEntity<byte[]> exportWorkbookToXlsx(
             @PathVariable String workbookId,
             Authentication authentication) throws IOException {
-        String userId = (String) authentication.getPrincipal();
+        String userId = authentication != null ? (String) authentication.getPrincipal() : "anonymous";
         log.info("REST request to export workbook {} to XLSX by {}", workbookId, userId);
         byte[] bytes = exportImportService.exportToXlsx(workbookId, userId);
 
@@ -42,7 +58,7 @@ public class ExportImportController {
     public ResponseEntity<byte[]> exportSheetToCsv(
             @PathVariable String sheetId,
             Authentication authentication) {
-        String userId = (String) authentication.getPrincipal();
+        String userId = authentication != null ? (String) authentication.getPrincipal() : "anonymous";
         log.info("REST request to export sheet {} to CSV by {}", sheetId, userId);
         byte[] bytes = exportImportService.exportToCsv(sheetId, userId);
 
@@ -58,7 +74,7 @@ public class ExportImportController {
     public ResponseEntity<WorkbookDto> importWorkbook(
             @RequestParam("file") MultipartFile file,
             Authentication authentication) throws IOException {
-        String userId = (String) authentication.getPrincipal();
+        String userId = authentication != null ? (String) authentication.getPrincipal() : "anonymous";
         log.info("REST request to import file {} by {}", file.getOriginalFilename(), userId);
         WorkbookDto dto = exportImportService.importWorkbook(file, userId);
         return ResponseEntity.status(HttpStatus.CREATED).body(dto);

@@ -25,10 +25,10 @@ export default function SpreadsheetGrid() {
   } = useGridStore();
   const { showToast } = useUIStore();
 
-  const { activeSheetId, workbook, isCellProtected, loadProtectedRanges } = useWorkbookStore();
+  const { activeSheetId, workbook, isCellProtected, isCellInProtectedRange, loadProtectedRanges } = useWorkbookStore();
   const { remoteCursors, broadcastCursorMove } = useCollabStore();
   const { threads } = useCommentStore();
-  const { openCellComment } = useUIStore();
+  const { openCellComment, activeModal } = useUIStore();
   const auth = useAuthStore();
 
   const currentUserId = auth.user?.id || auth.user?.username || auth.clientId;
@@ -39,6 +39,7 @@ export default function SpreadsheetGrid() {
 
   const gridRef = useRef(null);
   const inputRef = useRef(null);
+  const cursorAtEndRef = useRef(false);
   const [editValue, setEditValue] = useState('');
   const [isMouseDown, setIsMouseDown] = useState(false);
   const [dragAnchor, setDragAnchor] = useState(null);
@@ -87,11 +88,16 @@ export default function SpreadsheetGrid() {
     }
   }, [activeSheetId, loadProtectedRanges]);
 
-  // Focus in-cell editor
+  // Focus in-cell editor - position caret at the end if editing existing text (double-click / F2)
   useEffect(() => {
     if (editMode && inputRef.current) {
       inputRef.current.focus();
-      inputRef.current.select();
+      if (cursorAtEndRef.current) {
+        const len = inputRef.current.value.length;
+        inputRef.current.setSelectionRange(len, len);
+      } else {
+        inputRef.current.select();
+      }
     }
   }, [editMode]);
 
@@ -102,7 +108,7 @@ export default function SpreadsheetGrid() {
     }
   }, [selectedCell, activeSheetId, broadcastCursorMove]);
 
-  const startEdit = useCallback((initialVal = null) => {
+  const startEdit = useCallback((initialVal = null, moveCursorToEnd = false) => {
     if (isCellProtected(activeSheetId, selectedCell.row, selectedCell.col, currentUserId, userRole)) {
       showToast('🔒 This cell is protected and cannot be edited by your account.', 'warning');
       return;
@@ -110,6 +116,7 @@ export default function SpreadsheetGrid() {
     const key = `${selectedCell.row}:${selectedCell.col}`;
     const cell = cells[key];
     const val = initialVal !== null ? initialVal : (cell?.rawValue || cell?.value || '');
+    cursorAtEndRef.current = moveCursorToEnd;
     setEditValue(val);
     setEditMode(true);
   }, [selectedCell, cells, setEditMode, isCellProtected, activeSheetId, currentUserId, userRole, showToast]);
@@ -144,6 +151,9 @@ export default function SpreadsheetGrid() {
       setDragAnchor({ row: r, col: c });
       setSelectedCell(r, c);
       setSelectedRange(r, c, r, c);
+      if (activeModal === 'comments') {
+        useUIStore.setState({ activeCellCommentPos: { row: r, col: c } });
+      }
     }
   };
 
@@ -293,7 +303,7 @@ export default function SpreadsheetGrid() {
           break;
         case 'F2':
           e.preventDefault();
-          startEdit();
+          startEdit(null, true);
           break;
         default:
           if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -462,7 +472,10 @@ export default function SpreadsheetGrid() {
                     key={c}
                     onMouseDown={(e) => handleCellMouseDown(r, c, e)}
                     onMouseEnter={() => handleCellMouseEnter(r, c)}
-                    onDoubleClick={() => startEdit()}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      startEdit(null, true);
+                    }}
                     style={getCellStyle(cell)}
                     className={`grid-cell ${isFocused ? 'selected' : ''} ${inRange && !isFocused ? 'in-range' : ''} ${
                       isRangeTop ? 'cell-range-border-top' : ''
@@ -531,7 +544,7 @@ export default function SpreadsheetGrid() {
                     )}
 
                     {/* Protected Cell Indicator — subtle stripe overlay + lock icon */}
-                    {isCellProtected(activeSheetId, r, c, currentUserId, userRole) && (
+                    {isCellInProtectedRange(activeSheetId, r, c) && (
                       <>
                         <div className="cell-protected-overlay" />
                         <div
@@ -539,14 +552,18 @@ export default function SpreadsheetGrid() {
                             position: 'absolute',
                             bottom: '2px',
                             right: '3px',
-                            color: '#0284c7',
+                            color: isCellProtected(activeSheetId, r, c, currentUserId, userRole) ? '#dc2626' : '#0284c7',
                             pointerEvents: 'none',
-                            opacity: 0.8,
+                            opacity: 0.85,
                             display: 'flex',
                             alignItems: 'center',
                             zIndex: 10,
                           }}
-                          title="Protected Range — locked from unauthorized editing"
+                          title={
+                            isCellProtected(activeSheetId, r, c, currentUserId, userRole)
+                              ? "🔒 Protected Range — locked from unauthorized editing"
+                              : "🛡️ Protected Range (You have edit permissions)"
+                          }
                         >
                           <Lock size={9} />
                         </div>

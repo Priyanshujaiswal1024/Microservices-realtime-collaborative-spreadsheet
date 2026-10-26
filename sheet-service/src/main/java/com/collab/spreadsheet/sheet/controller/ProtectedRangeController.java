@@ -26,7 +26,9 @@ public class ProtectedRangeController {
     public ResponseEntity<List<ProtectedRangeDto>> getProtectedRanges(
             @PathVariable String sheetId,
             Authentication authentication) {
-        String userId = (String) authentication.getPrincipal();
+        String userId = authentication != null && authentication.getPrincipal() != null 
+                ? (String) authentication.getPrincipal() 
+                : "anonymous";
         return ResponseEntity.ok(protectedRangeService.getProtectedRanges(sheetId, userId));
     }
 
@@ -35,7 +37,9 @@ public class ProtectedRangeController {
             @PathVariable String sheetId,
             @Valid @RequestBody ProtectedRangeRequest request,
             Authentication authentication) {
-        String userId = (String) authentication.getPrincipal();
+        String userId = authentication != null && authentication.getPrincipal() != null 
+                ? (String) authentication.getPrincipal() 
+                : "anonymous";
         log.info("REST request to protect range in sheet {} by user {}", sheetId, userId);
         ProtectedRangeDto range = protectedRangeService.createProtectedRange(sheetId, request, userId);
         return ResponseEntity.status(HttpStatus.CREATED).body(range);
@@ -46,7 +50,9 @@ public class ProtectedRangeController {
             @PathVariable String sheetId,
             @PathVariable String id,
             Authentication authentication) {
-        String userId = (String) authentication.getPrincipal();
+        String userId = authentication != null && authentication.getPrincipal() != null 
+                ? (String) authentication.getPrincipal() 
+                : "anonymous";
         protectedRangeService.deleteProtectedRange(id, userId);
         return ResponseEntity.ok(Map.of("message", "Protected range removed successfully"));
     }

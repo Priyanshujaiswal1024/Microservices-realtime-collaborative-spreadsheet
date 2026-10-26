@@ -56,7 +56,7 @@ echo "   Redis:           localhost:6379"
 echo "   Kafka:           localhost:29092 (internal: kafka:9092)"
 echo "   Kafka UI:        http://localhost:8090"
 echo "   MailHog UI:      http://localhost:8025"
-echo "   Adminer (DB UI): http://localhost:8091"
+echo "   Adminer (DB UI): http://localhost:8095"
 echo ""
 echo "📝 Kafka Topics:"
 docker exec collab-kafka kafka-topics --list --bootstrap-server localhost:9092

@@ -40,7 +40,11 @@ public class WebSocketEventListener {
 
         if (sheetId != null && userId != null) {
             log.info("Cleaning up presence on WebSocket disconnect: user={}, sheet={}", userId, sheetId);
-            presenceTracker.handleLeave(sheetId, userId, userName);
+            try {
+                presenceTracker.handleLeave(sheetId, userId, userName);
+            } catch (Exception e) {
+                log.warn("Could not clean up user presence on disconnect (non-critical): {}", e.getMessage());
+            }
         } else if (userId != null) {
             log.info("User disconnected from WebSocket without mapped sheet: {}", userId);
         }

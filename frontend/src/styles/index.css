@@ -115,7 +115,8 @@ body {
   justify-content: space-between;
   padding: 0 16px;
   border-bottom: 1px solid #e0e3e7;
-  z-index: 40;
+  position: relative;
+  z-index: 500;
   flex-shrink: 0;
 }
 
@@ -141,26 +142,30 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 2px;
+  gap: 3px;
+  min-height: 52px;
 }
 
 .header-title-row {
   display: flex;
   align-items: center;
   gap: 8px;
+  height: 28px;
 }
 
 .workbook-title-btn {
-  font-size: 18px;
-  font-weight: 400;
+  font-size: 17px;
+  font-weight: 500;
   color: #1f1f1f;
-  padding: 2px 6px;
+  padding: 3px 7px;
   border-radius: 4px;
   cursor: pointer;
   background: transparent;
   border: 1px solid transparent;
   transition: all 0.15s ease;
-  line-height: 1.2;
+  line-height: 20px;
+  display: inline-flex;
+  align-items: center;
 }
 
 .workbook-title-btn:hover {
@@ -169,16 +174,18 @@ body {
 }
 
 .workbook-title-input {
-  font-size: 18px;
-  font-weight: 400;
+  font-size: 17px;
+  font-weight: 500;
   color: #1f1f1f;
   background: #ffffff;
   border: 2px solid #1a73e8;
   border-radius: 4px;
-  padding: 1px 5px;
+  padding: 2px 6px;
   outline: none;
-  width: 260px;
-  line-height: 1.2;
+  width: 240px;
+  line-height: 20px;
+  height: 26px;
+  box-sizing: border-box;
 }
 
 .header-icon-ghost {
@@ -230,6 +237,7 @@ body {
 
 .menu-dropdown-container {
   position: relative;
+  z-index: 510;
 }
 
 .menu-tab-btn {
@@ -259,9 +267,9 @@ body {
   background: #ffffff;
   border: 1px solid #dadce0;
   border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(60, 64, 67, 0.18);
+  box-shadow: 0 8px 24px rgba(60, 64, 67, 0.28);
   padding: 6px 0;
-  z-index: 100;
+  z-index: 9999;
 }
 
 .menu-dropdown-item {
@@ -661,9 +669,6 @@ body {
   color: #1a73e8;
 }
 
-/* ==========================================================================
-   Spreadsheet Grid Component (Authentic Google Sheets Look)
-   ========================================================================== */
 .grid-viewport {
   flex: 1;
   overflow: auto;

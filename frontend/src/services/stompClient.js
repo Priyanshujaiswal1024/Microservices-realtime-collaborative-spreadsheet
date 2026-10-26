@@ -1,5 +1,6 @@
 import { Client } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
+import { useAuthStore } from '../store/useAuthStore';
 
 class StompCollaborationClient {
   constructor() {
@@ -49,10 +50,16 @@ class StompCollaborationClient {
     const socketUrl = '/ws';
 
     try {
+      const authState = useAuthStore.getState ? useAuthStore.getState() : {};
+      const currentUserId = authState.user?.id || authState.clientId || '';
+      const currentUserName = authState.user?.username || authState.user?.fullName || 'Collaborator';
+
       this.client = new Client({
         webSocketFactory: () => new SockJS(socketUrl),
         connectHeaders: {
           Authorization: token ? `Bearer ${token}` : '',
+          userId: currentUserId,
+          userName: currentUserName,
         },
         reconnectDelay: 3000,
         heartbeatIncoming: 10000,
@@ -211,18 +218,31 @@ class StompCollaborationClient {
     const presenceSubKey = `sheet_${sheetId}_presence`;
     const commentSubKey = `sheet_${sheetId}_comments`;
     const protectSubKey = `sheet_${sheetId}_protect`;
+    const updatesSubKey = `sheet_${sheetId}_updates`;
 
     // Clean prior subscriptions
     this.unsubscribe(cellSubKey);
     this.unsubscribe(presenceSubKey);
     this.unsubscribe(commentSubKey);
     this.unsubscribe(protectSubKey);
+    this.unsubscribe(updatesSubKey);
 
     console.log(`[STOMP] Subscribing to /topic/sheet/${sheetId}/*`);
 
     const cellSub = this.client.subscribe(`/topic/sheet/${sheetId}/cells`, (msg) => {
       try {
         const payload = JSON.parse(msg.body);
+        if (
+          payload?.type === 'CLEAR_SHEET' ||
+          payload?.action === 'CLEAR_SHEET' ||
+          payload?.cellState?.value === 'CLEAR_SHEET' ||
+          (payload?.row === -1 && payload?.col === -1)
+        ) {
+          import('../store/useGridStore').then(({ useGridStore }) => {
+            useGridStore.getState().handleRemoteClearSheet(payload.sheetId || sheetId);
+          });
+          return;
+        }
         if (onCellUpdate) onCellUpdate(payload);
       } catch (e) {
         console.error('Error parsing cell update message', e);
@@ -253,12 +273,48 @@ class StompCollaborationClient {
           }
           return;
         }
+        if (payload?.type === 'CLEAR_SHEET' || payload?.action === 'CLEAR_SHEET') {
+          import('../store/useGridStore').then(({ useGridStore }) => {
+            useGridStore.getState().handleRemoteClearSheet(payload.sheetId || sheetId);
+          });
+          return;
+        }
+        if (payload?.type === 'SHEET_LIFECYCLE' || payload?.action?.startsWith('SHEET_')) {
+          import('../store/useWorkbookStore').then(({ useWorkbookStore }) => {
+            useWorkbookStore.getState().handleRemoteSheetLifecycle(payload);
+          });
+          return;
+        }
         if (onCommentUpdate) onCommentUpdate(payload);
       } catch (e) {
         console.error('Error parsing comment message', e);
       }
     });
     this.subscriptions.set(commentSubKey, commentSub);
+
+    const updatesSub = this.client.subscribe(`/topic/sheet/${sheetId}/updates`, (msg) => {
+      try {
+        let payload = JSON.parse(msg.body);
+        if (typeof payload === 'string') {
+          try { payload = JSON.parse(payload); } catch (e) {}
+        }
+        if (payload?.type === 'CLEAR_SHEET' || payload?.action === 'CLEAR_SHEET') {
+          import('../store/useGridStore').then(({ useGridStore }) => {
+            useGridStore.getState().handleRemoteClearSheet(payload.sheetId || sheetId);
+          });
+          return;
+        }
+        if (payload?.type === 'SHEET_LIFECYCLE' || payload?.action?.startsWith('SHEET_')) {
+          import('../store/useWorkbookStore').then(({ useWorkbookStore }) => {
+            useWorkbookStore.getState().handleRemoteSheetLifecycle(payload);
+          });
+          return;
+        }
+      } catch (e) {
+        console.error('Error parsing sheet updates message', e);
+      }
+    });
+    this.subscriptions.set(updatesSubKey, updatesSub);
 
     const protectSub = this.client.subscribe(`/topic/sheet/${sheetId}/protected-ranges`, (msg) => {
       try {
@@ -475,6 +531,7 @@ class StompCollaborationClient {
       }));
     } catch (e) {}
 
+    this._publishOrQueue(`/app/sheet/${sheetId}/clear`, JSON.stringify(payload));
     this._publishOrQueue(`/app/sheet/${sheetId}/edit`, JSON.stringify({
       type: 'CELL_UPDATE',
       sheetId,
@@ -540,6 +597,15 @@ class StompCollaborationClient {
       });
     }
 
+    try {
+      localStorage.setItem('sheetforge_cross_sync', JSON.stringify({
+        sheetId,
+        type: 'PRESENCE',
+        payload,
+        _ts: Date.now() + Math.random()
+      }));
+    } catch (e) {}
+
     // Send to Spring Boot backend (or queue if connecting)
     this._publishOrQueue(`/app/sheet/${sheetId}/presence`, JSON.stringify(payload));
   }
@@ -575,7 +641,7 @@ class StompCollaborationClient {
     this._publishOrQueue(`/app/sheet/${sheetId}/comment`, JSON.stringify(payload));
   }
 
-  sendWorkbookUpdate(workbookId, sheets, previousSheetId) {
+  sendWorkbookUpdate(workbookId, sheets, previousSheetId, deletedSheetId) {
     this.currentWorkbookId = workbookId;
     this.subscribeWorkbook(workbookId);
 
@@ -583,6 +649,7 @@ class StompCollaborationClient {
       type: 'WORKBOOK_UPDATE',
       workbookId,
       sheets,
+      deletedSheetId,
     };
 
     if (this.localBus) {
@@ -591,6 +658,7 @@ class StompCollaborationClient {
           type: 'WORKBOOK_UPDATE',
           workbookId,
           sheets,
+          deletedSheetId,
           payload,
         });
       } catch (e) {}
@@ -601,6 +669,7 @@ class StompCollaborationClient {
         type: 'WORKBOOK_UPDATE',
         workbookId,
         sheets,
+        deletedSheetId,
         payload,
         _ts: Date.now() + Math.random()
       }));
@@ -622,10 +691,21 @@ class StompCollaborationClient {
       this._publishOrQueue(`/app/sheet/${previousSheetId}/comment`, JSON.stringify(payload));
     }
 
-    // 5. Also broadcast to all sheets in list so collaborators on ANY sheet tab receive it
+    // 5. If a sheet was deleted, notify its specific channel so users on that sheet get switched!
+    if (deletedSheetId) {
+      this._publishOrQueue(`/app/sheet/${deletedSheetId}/comment`, JSON.stringify({
+        type: 'SHEET_LIFECYCLE',
+        action: 'SHEET_DELETED',
+        sheetId: deletedSheetId,
+        workbookId,
+        sheets,
+      }));
+    }
+
+    // 6. Also broadcast to all remaining sheets in list so collaborators on ANY sheet tab receive it
     if (Array.isArray(sheets)) {
       sheets.forEach((s) => {
-        if (s?.id && s.id !== this.currentSheetId && s.id !== previousSheetId) {
+        if (s?.id && s.id !== this.currentSheetId && s.id !== previousSheetId && s.id !== deletedSheetId) {
           this._publishOrQueue(`/app/sheet/${s.id}/comment`, JSON.stringify(payload));
         }
       });
@@ -656,12 +736,7 @@ class StompCollaborationClient {
       }));
     } catch (e) {}
 
-    if (this.client && this.connected) {
-      this.client.publish({
-        destination: `/app/sheet/${sheetId}/protect`,
-        body: JSON.stringify(payload),
-      });
-    }
+    this._publishOrQueue(`/app/sheet/${sheetId}/protect`, JSON.stringify(payload));
   }
 
   unsubscribe(key) {

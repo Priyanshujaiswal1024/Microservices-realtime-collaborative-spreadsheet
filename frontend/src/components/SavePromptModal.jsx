@@ -42,20 +42,81 @@ export default function SavePromptModal() {
     setError('');
 
     try {
+      const { workbookService } = await import('../services/workbookService');
+      const oldWorkbook = useWorkbookStore.getState().workbook;
+      const oldSheets = oldWorkbook?.sheets || [];
+      const prevActiveSheetId = useWorkbookStore.getState().activeSheetId;
+      const gridStore = useGridStore.getState();
+      const currentCells = { ...gridStore.cells };
+      const currentCache = { ...gridStore.sheetCache };
+      if (prevActiveSheetId) {
+        currentCache[prevActiveSheetId] = currentCells;
+      }
+
       const saved = await createWorkbook(title);
       if (saved?.id) {
-        const sheetId = saved.sheets?.[0]?.id;
-        if (sheetId) {
-          const currentCells = useGridStore.getState().cells;
-          if (currentCells) {
-            Object.values(currentCells).forEach((c) => {
-              if (c && c.rawValue !== undefined && c.rawValue !== '') {
-                useGridStore.getState().updateCellValue(c.row, c.col, c.rawValue, sheetId);
+        const savedSheets = saved.sheets ? [...saved.sheets] : [];
+
+        // 1. If old workbook had multiple sheets, recreate extra sheets on server
+        if (oldSheets.length > 1) {
+          for (let i = 1; i < oldSheets.length; i++) {
+            try {
+              const extraSheet = await workbookService.createSheet(saved.id, {
+                name: oldSheets[i].name || `Sheet${i + 1}`,
+                rowCount: oldSheets[i].rowCount || 100,
+                colCount: oldSheets[i].colCount || 26,
+              });
+              if (extraSheet && extraSheet.id) {
+                savedSheets.push(extraSheet);
               }
-            });
+            } catch (sheetErr) {
+              console.warn('Failed to create extra sheet on server:', sheetErr);
+            }
           }
-          await loadSheetCells(sheetId, true);
-          useCollabStore.getState().initCollab(sheetId);
+        }
+
+        // 2. Bulk persist cells for all sheets to the backend DB
+        const updatedCache = {};
+        for (let idx = 0; idx < savedSheets.length; idx++) {
+          const targetSheet = savedSheets[idx];
+          const oldSheet = oldSheets[idx];
+          const oldId = oldSheet?.id || (idx === 0 ? prevActiveSheetId : null);
+          const sheetCells = (oldId && currentCache[oldId]) || (idx === 0 ? currentCells : {});
+          updatedCache[targetSheet.id] = sheetCells;
+
+          const cellEntries = Object.values(sheetCells).filter(
+            (c) => c && (c.value !== undefined || c.rawValue !== undefined)
+          );
+
+          if (cellEntries.length > 0) {
+            const updates = cellEntries.map((c) => ({
+              row: c.row,
+              col: c.col,
+              value: c.rawValue !== undefined ? String(c.rawValue) : String(c.value),
+              dataType: c.dataType || (!isNaN(Number(c.value)) ? 'NUMBER' : 'TEXT'),
+              format: typeof c.format === 'object' ? JSON.stringify(c.format) : (c.format || '{}'),
+            }));
+            try {
+              await workbookService.bulkUpdateCells(targetSheet.id, updates);
+            } catch (bulkErr) {
+              console.warn('Failed to bulk upsert cells to backend DB:', bulkErr);
+            }
+          }
+        }
+
+        const finalWb = { ...saved, sheets: savedSheets };
+        useWorkbookStore.getState().setWorkbook(finalWb);
+        gridStore.setSheetCache(updatedCache);
+
+        try {
+          localStorage.setItem(`sheetforge_wb_${finalWb.id}`, JSON.stringify(finalWb));
+        } catch (e) {}
+
+        const firstSheetId = savedSheets[0]?.id;
+        if (firstSheetId) {
+          useWorkbookStore.getState().setActiveSheetId(firstSheetId);
+          await loadSheetCells(firstSheetId, false);
+          useCollabStore.getState().initCollab(firstSheetId);
         }
 
         closeModal();
@@ -65,7 +126,7 @@ export default function SavePromptModal() {
         if (action === 'saveAndShare') {
           setTimeout(() => openModal('share'), 120);
         }
-        return saved;
+        return finalWb;
       }
     } catch (err) {
       console.error('Failed to save workbook:', err);

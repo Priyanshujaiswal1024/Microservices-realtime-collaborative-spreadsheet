@@ -4,6 +4,8 @@ import { stompClient } from '../services/stompClient';
 import { useGridStore } from './useGridStore';
 import { useCollabStore } from './useCollabStore';
 import { useUIStore } from './useUIStore';
+import { useAuthStore } from './useAuthStore';
+import { HybridLogicalClock } from '../utils/crdt';
 
 const getFreshId = () => 'sheet-' + (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().substring(0, 8) : Math.random().toString(36).substring(2, 8));
 const DEFAULT_SHEET_ID = getFreshId();
@@ -121,16 +123,78 @@ export const useWorkbookStore = create((set, get) => ({
 
   createWorkbook: async (title = 'Untitled Spreadsheet') => {
     set({ isSaving: true });
+
+    // Capture existing cells in memory BEFORE switching active sheet ID
+    const gridStore = useGridStore.getState();
+    const existingCells = { ...gridStore.cells };
+    const prevSheetId = get().activeSheetId;
+    if (prevSheetId && gridStore.sheetCache[prevSheetId]) {
+      Object.assign(existingCells, gridStore.sheetCache[prevSheetId]);
+    }
+
     try {
       const data = await workbookService.createWorkbook({
         title,
         visibility: 'LINK_SHARED',
         initialSheetName: 'Sheet1',
       });
-      const activeSheetId = data.sheets?.[0]?.id || 'sheet-1';
-      set({ workbook: data, activeSheetId, isSaving: false });
+      const newSheetId = data.sheets?.[0]?.id || 'sheet-1';
+      set({ workbook: data, activeSheetId: newSheetId, isSaving: false });
       stompClient.subscribeWorkbook(data.id);
-      useCollabStore.getState().initCollab(activeSheetId);
+      useCollabStore.getState().initCollab(newSheetId);
+
+      // Migrate existing cells to the newly created server sheet
+      if (Object.keys(existingCells).length > 0) {
+        useGridStore.setState((state) => ({
+          cells: existingCells,
+          sheetCache: {
+            ...state.sheetCache,
+            [newSheetId]: existingCells,
+          },
+        }));
+
+        try {
+          localStorage.setItem(`sheetforge_cells_${newSheetId}`, JSON.stringify(existingCells));
+        } catch (e) {}
+
+        // Persist to Postgres database
+        const cellUpdates = Object.values(existingCells)
+          .filter((c) => c && (c.rawValue !== undefined || c.value !== undefined || Object.keys(c.format || {}).length > 0))
+          .map((c) => ({
+            row: c.row,
+            col: c.col,
+            value: c.rawValue || c.value || '',
+            dataType: c.dataType || 'TEXT',
+            format: typeof c.format === 'string' ? c.format : JSON.stringify(c.format || {}),
+          }));
+
+        if (cellUpdates.length > 0) {
+          workbookService.bulkUpdateCells(newSheetId, cellUpdates).catch((e) => {
+            console.warn('Failed to bulk upsert cells to server during workbook creation', e);
+          });
+
+          // Also publish atomic batch to Redis / STOMP so live collaborators / new tabs get them immediately
+          const auth = useAuthStore.getState();
+          const clientId = auth.clientId || 'client-local';
+          const userId = auth.user?.id || 'guest';
+          const batchItems = cellUpdates.map((u) => {
+            const hlc = HybridLogicalClock.now(clientId);
+            return {
+              row: u.row,
+              col: u.col,
+              cellState: {
+                value: u.value,
+                dataType: u.dataType,
+                format: u.format,
+                timestamp: { physicalTime: hlc.physicalTime, logicalCounter: hlc.logicalCounter, clientId: hlc.clientId },
+                clientId: hlc.clientId,
+                userId: userId,
+              }
+            };
+          });
+          stompClient.sendBatchCellEdit(newSheetId, batchItems, userId);
+        }
+      }
 
       // Update URL with newly generated UUID
       const url = new URL(window.location);
@@ -239,15 +303,27 @@ export const useWorkbookStore = create((set, get) => ({
   updateTitle: async (newTitle) => {
     const { workbook } = get();
     if (!workbook) return;
-    const updated = { ...workbook, title: newTitle };
+    const trimmed = (newTitle || '').trim();
+    if (!trimmed) return;
+
+    const isUnsaved = !workbook.id || workbook.id.startsWith('wb-') || workbook.id === 'wb-default-1';
+
+    if (isUnsaved) {
+      // Auto-create/save the workbook when user sets/edits the title!
+      return await get().createWorkbook(trimmed);
+    }
+
+    const updated = { ...workbook, title: trimmed };
     set({ workbook: updated });
 
     try {
       localStorage.setItem(`sheetforge_wb_${workbook.id}`, JSON.stringify(updated));
       await workbookService.updateWorkbook(workbook.id, {
-        title: newTitle,
+        title: trimmed,
         visibility: workbook.visibility,
       });
+      // Broadcast title update to other collaborators
+      stompClient.sendWorkbookSheetsUpdate(workbook.id, workbook.sheets || []);
     } catch (err) {
       console.warn('Failed to persist title on server', err);
     }
@@ -380,7 +456,7 @@ export const useWorkbookStore = create((set, get) => ({
     }
 
     // Broadcast to all peers
-    stompClient.sendWorkbookUpdate(workbook.id, updatedSheets, prevSheetId);
+    stompClient.sendWorkbookUpdate(workbook.id, updatedSheets, prevSheetId, sheetId);
   },
 
   renameSheet: async (sheetId, newName) => {
@@ -592,6 +668,93 @@ export const useWorkbookStore = create((set, get) => ({
       try {
         localStorage.setItem(`sheetforge_protect_${sheetId}`, JSON.stringify(updated));
       } catch (e) {}
+    }
+  },
+
+  isCellInProtectedRange: (sheetId, row, col) => {
+    const { protectedRanges } = get();
+    for (const r of protectedRanges) {
+      if (!r.sheetId || r.sheetId === sheetId) {
+        if (row >= r.startRow && row <= r.endRow && col >= r.startCol && col <= r.endCol) {
+          return true;
+        }
+      }
+    }
+    return false;
+  },
+
+  getProtectedRangeForCell: (sheetId, row, col) => {
+    const { protectedRanges } = get();
+    for (const r of protectedRanges) {
+      if (!r.sheetId || r.sheetId === sheetId) {
+        if (row >= r.startRow && row <= r.endRow && col >= r.startCol && col <= r.endCol) {
+          return r;
+        }
+      }
+    }
+    return null;
+  },
+
+  handleRemoteWorkbookUpdate: (sheets) => {
+    if (!Array.isArray(sheets) || sheets.length === 0) return;
+    const { workbook, activeSheetId } = get();
+    if (!workbook) return;
+
+    // Check if currently active sheet was deleted in this update
+    const isCurrentDeleted = !sheets.some((s) => s.id === activeSheetId);
+    let nextActiveId = activeSheetId;
+    if (isCurrentDeleted) {
+      nextActiveId = sheets[0]?.id;
+    }
+
+    const updatedWorkbook = { ...workbook, sheets };
+    set({ workbook: updatedWorkbook, activeSheetId: nextActiveId });
+
+    try {
+      localStorage.setItem(`sheetforge_wb_${workbook.id}`, JSON.stringify(updatedWorkbook));
+    } catch (e) {}
+
+    // If active sheet was deleted by another user, switch grid and collab to remaining sheet
+    if (isCurrentDeleted && nextActiveId) {
+      useGridStore.getState().loadSheetCells(nextActiveId, false);
+      useCollabStore.getState().initCollab(nextActiveId);
+      useUIStore.getState().showToast('The sheet you were viewing was removed.', 'info');
+    }
+  },
+
+  handleRemoteSheetLifecycle: (event) => {
+    if (!event) return;
+    const { workbook, activeSheetId } = get();
+    if (!workbook) return;
+
+    const action = event.action;
+    const sheetId = event.sheetId;
+
+    if (action === 'SHEET_DELETED') {
+      const remainingSheets = (workbook.sheets || []).filter((s) => s.id !== sheetId);
+      if (remainingSheets.length > 0) {
+        get().handleRemoteWorkbookUpdate(remainingSheets);
+      }
+    } else if (action === 'SHEET_CREATED') {
+      const exists = (workbook.sheets || []).some((s) => s.id === sheetId);
+      if (!exists) {
+        const newSheets = [
+          ...(workbook.sheets || []),
+          {
+            id: sheetId,
+            name: event.name || `Sheet${(workbook.sheets?.length || 0) + 1}`,
+            position: workbook.sheets?.length || 0,
+            rowCount: 100,
+            colCount: 26,
+          }
+        ];
+        get().handleRemoteWorkbookUpdate(newSheets);
+      }
+    } else if (action === 'SHEET_UPDATED') {
+      const updatedSheets = (workbook.sheets || []).map((s) =>
+        s.id === sheetId ? { ...s, name: event.name || s.name } : s
+      );
+      get().handleRemoteWorkbookUpdate(updatedSheets);
     }
   },
 

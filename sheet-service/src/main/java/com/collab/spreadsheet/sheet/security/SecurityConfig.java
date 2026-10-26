@@ -35,7 +35,8 @@ public class SecurityConfig {
                                 "/actuator/**",
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",
-                                "/swagger-ui.html"
+                                "/swagger-ui.html",
+                                "/api/v1/workbooks/export/xlsx"
                         ).permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
                                 "/api/v1/workbooks/**",

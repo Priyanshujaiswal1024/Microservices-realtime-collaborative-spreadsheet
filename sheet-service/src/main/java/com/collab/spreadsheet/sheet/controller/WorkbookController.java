@@ -27,7 +27,7 @@ public class WorkbookController {
     public ResponseEntity<WorkbookDto> createWorkbook(
             @Valid @RequestBody CreateWorkbookRequest request,
             Authentication authentication) {
-        String userId = (String) authentication.getPrincipal();
+        String userId = authentication != null ? (String) authentication.getPrincipal() : "anonymous";
         log.info("REST request to create workbook: {} by user: {}", request.getTitle(), userId);
         WorkbookDto workbook = workbookService.createWorkbook(request, userId);
         return ResponseEntity.status(HttpStatus.CREATED).body(workbook);
@@ -35,7 +35,7 @@ public class WorkbookController {
 
     @GetMapping
     public ResponseEntity<List<WorkbookDto>> listWorkbooks(Authentication authentication) {
-        String userId = (String) authentication.getPrincipal();
+        String userId = authentication != null ? (String) authentication.getPrincipal() : "anonymous";
         log.info("REST request to list accessible workbooks for user: {}", userId);
         List<WorkbookDto> workbooks = workbookService.listUserWorkbooks(userId);
         return ResponseEntity.ok(workbooks);
@@ -56,7 +56,7 @@ public class WorkbookController {
             @PathVariable String id,
             @Valid @RequestBody UpdateWorkbookRequest request,
             Authentication authentication) {
-        String userId = (String) authentication.getPrincipal();
+        String userId = authentication != null ? (String) authentication.getPrincipal() : "anonymous";
         log.info("REST request to update workbook: {} by user: {}", id, userId);
         WorkbookDto updated = workbookService.updateWorkbook(id, request, userId);
         return ResponseEntity.ok(updated);
@@ -66,7 +66,7 @@ public class WorkbookController {
     public ResponseEntity<Map<String, String>> deleteWorkbook(
             @PathVariable String id,
             Authentication authentication) {
-        String userId = (String) authentication.getPrincipal();
+        String userId = authentication != null ? (String) authentication.getPrincipal() : "anonymous";
         log.info("REST request to delete workbook: {} by user: {}", id, userId);
         workbookService.deleteWorkbook(id, userId);
         return ResponseEntity.ok(Map.of("message", "Workbook deleted successfully"));

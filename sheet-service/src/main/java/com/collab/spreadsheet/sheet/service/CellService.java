@@ -16,7 +16,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -116,7 +118,15 @@ public class CellService {
             return results;
         }
 
+        // Deduplicate updates within the same batch by row:col to avoid unique constraint collisions
+        Map<String, BulkCellUpdateRequest.CellUpdateItem> uniqueMap = new LinkedHashMap<>();
         for (BulkCellUpdateRequest.CellUpdateItem item : request.getUpdates()) {
+            if (item != null && item.getRow() != null && item.getCol() != null) {
+                uniqueMap.put(item.getRow() + ":" + item.getCol(), item);
+            }
+        }
+
+        for (BulkCellUpdateRequest.CellUpdateItem item : uniqueMap.values()) {
             if (protectedRangeService.isCellProtectedForUser(sheetId, item.getRow(), item.getCol(), userId)) {
                 continue; // Skip protected cells
             }

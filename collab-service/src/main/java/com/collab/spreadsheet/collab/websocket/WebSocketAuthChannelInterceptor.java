@@ -68,6 +68,33 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
             } else {
                 log.debug("WebSocket CONNECT without explicit token (guest/anonymous session)");
             }
+
+            // Capture userId and userName into sessionAttributes
+            String rawUserId = accessor.getFirstNativeHeader("userId");
+            String rawUserName = accessor.getFirstNativeHeader("userName");
+            if (accessor.getSessionAttributes() != null) {
+                if (StringUtils.hasText(rawUserId)) {
+                    accessor.getSessionAttributes().put("userId", rawUserId);
+                } else if (accessor.getUser() != null) {
+                    accessor.getSessionAttributes().put("userId", accessor.getUser().getName());
+                }
+                if (StringUtils.hasText(rawUserName)) {
+                    accessor.getSessionAttributes().put("userName", rawUserName);
+                }
+            }
+        }
+
+        if (accessor != null && StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
+            String destination = accessor.getDestination();
+            if (destination != null && destination.startsWith("/topic/sheet/")) {
+                String[] parts = destination.split("/");
+                if (parts.length >= 4) {
+                    String sheetId = parts[3];
+                    if (accessor.getSessionAttributes() != null) {
+                        accessor.getSessionAttributes().put("sheetId", sheetId);
+                    }
+                }
+            }
         }
 
         return message;

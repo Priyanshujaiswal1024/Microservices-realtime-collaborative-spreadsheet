@@ -30,6 +30,14 @@ export default function HistoryModal() {
     }
   }, [activeModal, workbook?.id, loadHistory, loadSnapshots]);
 
+  useEffect(() => {
+    if (activeModal === 'history') {
+      if (snapshots.length === 0 && historyEvents.length > 0) {
+        setActiveTab('history');
+      }
+    }
+  }, [activeModal, snapshots.length, historyEvents.length]);
+
   if (activeModal !== 'history') return null;
 
   const handleCreateSnapshot = async (e) => {
@@ -195,6 +203,16 @@ export default function HistoryModal() {
                     <p style={{ margin: '4px 0 0', fontSize: '12px' }}>
                       Name the current version above to create a restore point.
                     </p>
+                    {historyEvents.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('history')}
+                        className="google-btn-secondary"
+                        style={{ marginTop: '12px', fontSize: '12px', padding: '6px 14px' }}
+                      >
+                        View Change Feed ({historyEvents.length} changes logged)
+                      </button>
+                    )}
                   </div>
                 ) : (
                   snapshots.map((s) => (

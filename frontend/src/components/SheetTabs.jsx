@@ -3,13 +3,15 @@ import { useWorkbookStore } from '../store/useWorkbookStore';
 import { useGridStore } from '../store/useGridStore';
 import { useCollabStore } from '../store/useCollabStore';
 import { useUIStore } from '../store/useUIStore';
-import { Plus, ChevronDown, X } from 'lucide-react';
+import { useCommentStore } from '../store/useCommentStore';
+import { Plus, ChevronDown, X, MessageSquare } from 'lucide-react';
 
 export default function SheetTabs() {
   const { workbook, activeSheetId, setActiveSheetId, addSheet, deleteSheet, renameSheet } = useWorkbookStore();
   const { loadSheetCells, saveActiveSheetToCache } = useGridStore();
   const { initCollab } = useCollabStore();
   const { showConfirm, showToast } = useUIStore();
+  const { threads } = useCommentStore();
 
   const [editingSheetId, setEditingSheetId] = useState(null);
   const [editName, setEditName] = useState('');
@@ -109,7 +111,22 @@ export default function SheetTabs() {
                   className="tab-rename-input"
                 />
               ) : (
-                <span className="tab-title-text">{sheet.name}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span className="tab-title-text">{sheet.name}</span>
+                  {threads.some((t) => (t.sheetId === sheet.id || (!t.sheetId && sheet.position === 0)) && !t.resolved) && (
+                    <span
+                      style={{
+                        width: '6px',
+                        height: '6px',
+                        borderRadius: '50%',
+                        backgroundColor: '#ff8f00',
+                        display: 'inline-block',
+                        flexShrink: 0,
+                      }}
+                      title="Sheet has active comments"
+                    />
+                  )}
+                </div>
               )}
 
               {/* Dropdown Chevron for Active Tab */}

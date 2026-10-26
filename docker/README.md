@@ -6,7 +6,7 @@ This directory contains Docker Compose configuration and helper scripts for runn
 
 | Service | Port | Purpose | UI |
 |---------|------|---------|-----|
-| **PostgreSQL** | 5432 | Primary database (5 separate DBs) | http://localhost:8091 (Adminer) |
+| **PostgreSQL** | 5432 | Primary database (5 separate DBs) | http://localhost:8095 (Adminer) |
 | **Redis** | 6379 | CRDT state, Pub/Sub, Streams, cache | - |
 | **Kafka** | 29092 | Event streaming | http://localhost:8090 (Kafka UI) |
 | **Zookeeper** | 2181 | Kafka coordination | - |
@@ -134,7 +134,7 @@ PostgreSQL creates 5 separate databases:
 - View all emails sent by the application
 - Test email notifications
 
-### Adminer (http://localhost:8091)
+### Adminer (http://localhost:8095)
 - Connect: Server=`postgres`, Username=`collabuser`, Password=`collabpass`
 - Browse all databases
 - Execute SQL queries

@@ -220,7 +220,17 @@ export const useGridStore = create((set, get) => ({
     }
 
     const activeId = useWorkbookStore.getState().activeSheetId;
-    if (!sheetId || sheetId === activeId) {
+    const currentWb = useWorkbookStore.getState().workbook;
+    const activeSheetObj = currentWb?.sheets?.find((s) => s.id === activeId);
+    const targetSheetObj = currentWb?.sheets?.find((s) => s.id === sheetId || s.name === sheetId);
+
+    const isCurrentActive =
+      !sheetId ||
+      sheetId === activeId ||
+      !activeId ||
+      (activeSheetObj && targetSheetObj && activeSheetObj.id === targetSheetObj.id);
+
+    if (isCurrentActive) {
       set({
         cells: {},
         formulaBarValue: '',
@@ -282,36 +292,42 @@ export const useGridStore = create((set, get) => ({
 
   updateCachedSheetCell: (sheetId, row, col, cellState) => {
     if (!sheetId || row === undefined || col === undefined || !cellState) return;
-    const { sheetCache } = get();
-    const sheetMap = { ...(sheetCache[sheetId] || {}) };
+    const { cells, sheetCache } = get();
+    const activeSheetId = useWorkbookStore.getState().activeSheetId;
+    const isActiveSheet = (!sheetId || sheetId === activeSheetId);
+    const targetMap = isActiveSheet ? { ...cells } : { ...(sheetCache[sheetId] || {}) };
     const key = `${row}:${col}`;
-    const rawVal = cellState.value !== undefined ? cellState.value : '';
+    const previous = targetMap[key];
+    const rawVal = cellState.value !== undefined ? cellState.value : (previous?.rawValue || '');
 
-    let cellFormat = {};
+    let cellFormat = previous?.format || {};
     if (typeof cellState.format === 'string') {
       try {
-        cellFormat = JSON.parse(cellState.format);
-      } catch (e) {
-        cellFormat = {};
-      }
+        cellFormat = { ...cellFormat, ...JSON.parse(cellState.format) };
+      } catch (e) {}
     } else if (cellState.format && typeof cellState.format === 'object') {
-      cellFormat = cellState.format;
+      cellFormat = { ...cellFormat, ...cellState.format };
     }
 
-    sheetMap[key] = {
+    targetMap[key] = {
       row,
       col,
       rawValue: rawVal,
       value: rawVal,
       dataType: cellState.dataType || 'TEXT',
       format: cellFormat,
-      lastModifiedTs: cellState.timestamp,
+      lastModifiedTs: cellState.timestamp?.toCompactString ? cellState.timestamp.toCompactString() : cellState.timestamp,
       lastModifiedBy: cellState.userId,
     };
 
-    set({ sheetCache: { ...sheetCache, [sheetId]: sheetMap } });
+    const newCache = { ...sheetCache, [sheetId]: targetMap };
+    if (isActiveSheet) {
+      set({ cells: targetMap, sheetCache: newCache });
+    } else {
+      set({ sheetCache: newCache });
+    }
     try {
-      localStorage.setItem(`sheetforge_cells_${sheetId}`, JSON.stringify(sheetMap));
+      localStorage.setItem(`sheetforge_cells_${sheetId}`, JSON.stringify(targetMap));
     } catch (e) {}
   },
 
@@ -345,12 +361,18 @@ export const useGridStore = create((set, get) => ({
     set({ cells: {}, formulaBarValue: '', selectedCell: { row: 0, col: 0 } });
 
     try {
-      // Always try server first; cache is secondary
-      let data;
+      let data = null;
       try {
         data = await workbookService.getLiveSheetState(sheetId);
-      } catch (e) {
-        data = await workbookService.getSheetCells(sheetId);
+      } catch (e) {}
+
+      // If Redis has no live state for this sheet (e.g. freshly imported or loaded from DB), fetch from Postgres DB
+      if (!data || (typeof data === 'object' && Object.keys(data).length === 0)) {
+        try {
+          data = await workbookService.getSheetCells(sheetId);
+        } catch (e) {
+          console.warn('Failed to load cells from database:', e);
+        }
       }
 
       const cellMap = {};
@@ -467,7 +489,13 @@ export const useGridStore = create((set, get) => ({
 
     let cellFormat = previous?.format || {};
     if (remoteFormat !== null && remoteFormat !== undefined) {
-      cellFormat = remoteFormat;
+      if (typeof remoteFormat === 'object') {
+        cellFormat = { ...cellFormat, ...remoteFormat };
+      } else if (typeof remoteFormat === 'string') {
+        try {
+          cellFormat = { ...cellFormat, ...JSON.parse(remoteFormat) };
+        } catch (e) {}
+      }
     }
 
     const updatedCell = {
@@ -563,12 +591,10 @@ export const useGridStore = create((set, get) => ({
       if (state.format !== null && state.format !== undefined) {
         if (typeof state.format === 'string') {
           try {
-            cellFormat = JSON.parse(state.format);
-          } catch (e) {
-            cellFormat = {};
-          }
+            cellFormat = { ...cellFormat, ...JSON.parse(state.format) };
+          } catch (e) {}
         } else if (typeof state.format === 'object') {
-          cellFormat = state.format;
+          cellFormat = { ...cellFormat, ...state.format };
         }
       }
 
@@ -677,14 +703,15 @@ export const useGridStore = create((set, get) => ({
       sheetCache: sheetId ? { ...sheetCache, [sheetId]: newCells } : sheetCache
     });
 
-    if (sheetId && !isPreview) {
+    const targetSheetId = sheetId || useWorkbookStore.getState().activeSheetId;
+    if (targetSheetId && !isPreview) {
       try {
-        localStorage.setItem(`sheetforge_cells_${sheetId}`, JSON.stringify(newCells));
+        localStorage.setItem(`sheetforge_cells_${targetSheetId}`, JSON.stringify(newCells));
       } catch (e) {}
 
       // Batch send ONE atomic message across STOMP, BroadcastChannel & LocalStorage
       if (batchUpdates.length > 0) {
-        stompClient.sendBatchCellEdit(sheetId, batchUpdates, currentUserId);
+        stompClient.sendBatchCellEdit(targetSheetId, batchUpdates, currentUserId);
       }
     }
   },

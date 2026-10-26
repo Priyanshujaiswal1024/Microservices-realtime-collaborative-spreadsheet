@@ -44,13 +44,22 @@ export const useCollabStore = create((set, get) => ({
           if (Array.isArray(users)) {
             const currentId = useAuthStore.getState().user?.id || useAuthStore.getState().clientId;
             const remoteActive = users.filter((u) => u.userId && u.userId !== currentId);
+            const activeUserIds = new Set(remoteActive.map((u) => u.userId));
+
             set((state) => {
-              const map = new Map();
-              state.activeUsers.forEach((u) => map.set(u.userId, u));
-              remoteActive.forEach((u) => {
-                map.set(u.userId, { ...map.get(u.userId), ...u, lastActiveEpoch: Date.now() });
-              });
-              return { activeUsers: Array.from(map.values()) };
+              const updatedCursors = { ...state.remoteCursors };
+              let cursorsChanged = false;
+              for (const uId of Object.keys(updatedCursors)) {
+                if (!activeUserIds.has(uId)) {
+                  delete updatedCursors[uId];
+                  cursorsChanged = true;
+                }
+              }
+
+              return {
+                activeUsers: remoteActive,
+                remoteCursors: cursorsChanged ? updatedCursors : state.remoteCursors,
+              };
             });
           }
         })
@@ -58,7 +67,7 @@ export const useCollabStore = create((set, get) => ({
     };
 
     fetchPresence();
-    const presenceTimer = setInterval(fetchPresence, 10000);
+    const presenceTimer = setInterval(fetchPresence, 3000);
 
     // Subscribe to sheet cell updates, presence & comments
     const unsub = stompClient.subscribeSheet(sheetId, {
@@ -149,9 +158,11 @@ export const useCollabStore = create((set, get) => ({
             }
             set({ activeUsers: updated });
           } else if (msg.action === 'LEAVE') {
+            const nextCursors = { ...get().remoteCursors };
+            delete nextCursors[msg.userId];
             set({
               activeUsers: activeUsers.filter((u) => u.userId !== msg.userId),
-              remoteCursors: { ...get().remoteCursors, [msg.userId]: undefined },
+              remoteCursors: nextCursors,
             });
           }
         }

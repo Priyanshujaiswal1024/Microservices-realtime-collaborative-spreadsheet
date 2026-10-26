@@ -31,7 +31,7 @@ public class PresenceTracker {
 
     private static final String PRESENCE_PREFIX = "sheet:";
     private static final String PRESENCE_SUFFIX = ":presence";
-    private static final long PRESENCE_TIMEOUT_SECONDS = 30;
+    private static final long PRESENCE_TIMEOUT_SECONDS = 15;
 
     @Data
     @NoArgsConstructor
@@ -72,16 +72,24 @@ public class PresenceTracker {
     }
 
     public void handleLeave(String sheetId, String userId, String userName) {
-        redisTemplate.opsForHash().delete(getPresenceKey(sheetId), userId);
+        try {
+            redisTemplate.opsForHash().delete(getPresenceKey(sheetId), userId);
+        } catch (Exception e) {
+            log.warn("Could not remove presence from Redis for user {} (non-critical): {}", userId, e.getMessage());
+        }
 
-        PresenceMessage msg = new PresenceMessage();
-        msg.setSheetId(sheetId);
-        msg.setUserId(userId);
-        msg.setUserName(userName);
-        msg.setAction(PresenceMessage.Action.LEAVE);
-        msg.setTimestamp(Instant.now());
+        try {
+            PresenceMessage msg = new PresenceMessage();
+            msg.setSheetId(sheetId);
+            msg.setUserId(userId);
+            msg.setUserName(userName);
+            msg.setAction(PresenceMessage.Action.LEAVE);
+            msg.setTimestamp(Instant.now());
 
-        pubSubBroadcaster.broadcast(sheetId, msg);
+            pubSubBroadcaster.broadcast(sheetId, msg);
+        } catch (Exception e) {
+            log.warn("Could not broadcast LEAVE presence message (non-critical): {}", e.getMessage());
+        }
     }
 
     public void updateCursor(String sheetId, CursorMoveMessage message, String userId) {

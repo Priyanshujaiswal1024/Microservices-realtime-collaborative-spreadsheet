@@ -93,6 +93,42 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [workbook, cells]);
 
+  // Handle tab close / refresh: send LEAVE presence and notify backend immediately
+  useEffect(() => {
+    const handleLeave = () => {
+      const activeSheet = useWorkbookStore.getState().activeSheetId;
+      const auth = useAuthStore.getState();
+      const userId = auth.user?.id || auth.clientId;
+      const userName = auth.user?.username || auth.user?.fullName || 'Collaborator';
+
+      if (activeSheet && userId) {
+        // 1. Dispatch LEAVE over STOMP WebSocket
+        try {
+          stompClient.sendPresence(activeSheet, 'LEAVE', userName, auth.userColor, userId);
+        } catch (e) {}
+
+        // 2. Dispatch via navigator.sendBeacon or fetch keepalive to guarantee delivery during tab close
+        try {
+          const params = new URLSearchParams({ userId, userName });
+          const leaveUrl = `/api/v1/collab/sheet/${activeSheet}/leave?${params.toString()}`;
+          if (navigator.sendBeacon) {
+            navigator.sendBeacon(leaveUrl);
+          } else {
+            fetch(leaveUrl, { method: 'POST', keepalive: true }).catch(() => {});
+          }
+        } catch (e) {}
+      }
+    };
+
+    window.addEventListener('beforeunload', handleLeave);
+    window.addEventListener('pagehide', handleLeave);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleLeave);
+      window.removeEventListener('pagehide', handleLeave);
+    };
+  }, []);
+
   // On mount and auth changes: load URL workbook (or user's latest) and connect real-time collaboration
   useEffect(() => {
     let isCancelled = false;
@@ -127,20 +163,82 @@ export default function App() {
         const pending = consumePendingAfterLogin();
         if (pending.title) {
           try {
-            const currentCells = useGridStore.getState().cells;
+            const { workbookService } = await import('./services/workbookService');
+            const oldWorkbook = useWorkbookStore.getState().workbook;
+            const oldSheets = oldWorkbook?.sheets || [];
+            const prevActiveSheetId = useWorkbookStore.getState().activeSheetId;
+            const gridStore = useGridStore.getState();
+            const currentCells = { ...gridStore.cells };
+            const currentCache = { ...gridStore.sheetCache };
+            if (prevActiveSheetId) {
+              currentCache[prevActiveSheetId] = currentCells;
+            }
+
             const savedWb = await useWorkbookStore.getState().createWorkbook(pending.title);
             if (isCancelled) return;
-            if (savedWb?.id && savedWb.sheets?.[0]?.id) {
-              const sheetId = savedWb.sheets[0].id;
-              if (currentCells) {
-                Object.values(currentCells).forEach((c) => {
-                  if (c && c.rawValue !== undefined && c.rawValue !== '') {
-                    useGridStore.getState().updateCellValue(c.row, c.col, c.rawValue, sheetId);
+            if (savedWb?.id) {
+              const savedSheets = savedWb.sheets ? [...savedWb.sheets] : [];
+
+              if (oldSheets.length > 1) {
+                for (let i = 1; i < oldSheets.length; i++) {
+                  try {
+                    const extraSheet = await workbookService.createSheet(savedWb.id, {
+                      name: oldSheets[i].name || `Sheet${i + 1}`,
+                      rowCount: oldSheets[i].rowCount || 100,
+                      colCount: oldSheets[i].colCount || 26,
+                    });
+                    if (extraSheet && extraSheet.id) {
+                      savedSheets.push(extraSheet);
+                    }
+                  } catch (sheetErr) {
+                    console.warn('Failed to create extra sheet on server:', sheetErr);
                   }
-                });
+                }
               }
-              await loadSheetCells(sheetId, true);
-              initCollab(sheetId);
+
+              const updatedCache = {};
+              for (let idx = 0; idx < savedSheets.length; idx++) {
+                const targetSheet = savedSheets[idx];
+                const oldSheet = oldSheets[idx];
+                const oldId = oldSheet?.id || (idx === 0 ? prevActiveSheetId : null);
+                const sheetCells = (oldId && currentCache[oldId]) || (idx === 0 ? currentCells : {});
+                updatedCache[targetSheet.id] = sheetCells;
+
+                const cellEntries = Object.values(sheetCells).filter(
+                  (c) => c && (c.value !== undefined || c.rawValue !== undefined)
+                );
+
+                if (cellEntries.length > 0) {
+                  const updates = cellEntries.map((c) => ({
+                    row: c.row,
+                    col: c.col,
+                    value: c.rawValue !== undefined ? String(c.rawValue) : String(c.value),
+                    dataType: c.dataType || (!isNaN(Number(c.value)) ? 'NUMBER' : 'TEXT'),
+                    format: typeof c.format === 'object' ? JSON.stringify(c.format) : (c.format || '{}'),
+                  }));
+                  try {
+                    await workbookService.bulkUpdateCells(targetSheet.id, updates);
+                  } catch (bulkErr) {
+                    console.warn('Failed to bulk upsert cells to backend DB:', bulkErr);
+                  }
+                }
+              }
+
+              const finalWb = { ...savedWb, sheets: savedSheets };
+              useWorkbookStore.getState().setWorkbook(finalWb);
+              gridStore.setSheetCache(updatedCache);
+
+              try {
+                localStorage.setItem(`sheetforge_wb_${finalWb.id}`, JSON.stringify(finalWb));
+              } catch (e) {}
+
+              const firstSheetId = savedSheets[0]?.id;
+              if (firstSheetId) {
+                useWorkbookStore.getState().setActiveSheetId(firstSheetId);
+                await loadSheetCells(firstSheetId, false);
+                initCollab(firstSheetId);
+              }
+
               // If original intent was to share, open share modal
               if (pending.action === 'saveAndShare') {
                 setTimeout(() => useUIStore.getState().openModal('share'), 300);

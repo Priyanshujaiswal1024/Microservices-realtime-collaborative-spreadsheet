@@ -32,6 +32,11 @@ public class CollabOrchestrator {
     private final KafkaCellEditProducer kafkaCellEditProducer;
     private final ProtectedRangeRedisValidator protectedRangeValidator;
 
+    public void clearSheet(String sheetId) {
+        redisCellStateRepository.clearSheet(sheetId);
+        log.info("Cleared all cells in Redis cache for sheet {}", sheetId);
+    }
+
     public CellState processCellEdit(String sheetId, CellUpdateMessage message, String userId) {
         int row = message.getRow();
         int col = message.getCol();
@@ -44,12 +49,11 @@ public class CollabOrchestrator {
 
         // Handle sheet clear broadcast
         if (row == -1 && col == -1 && ("CLEAR_SHEET".equals(incoming.getValue()) || "ACTION".equalsIgnoreCase(incoming.getDataType()))) {
-            redisCellStateRepository.clearSheet(sheetId);
+            clearSheet(sheetId);
             message.setSheetId(sheetId);
             message.setUserId(userId);
             message.setTimestamp(Instant.now());
             redisPubSubBroadcaster.broadcast(sheetId, message);
-            log.info("Cleared all cells in Redis cache for sheet {}", sheetId);
             return incoming;
         }
 

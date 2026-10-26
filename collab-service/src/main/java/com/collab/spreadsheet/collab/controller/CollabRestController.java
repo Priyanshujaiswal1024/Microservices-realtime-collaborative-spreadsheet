@@ -45,4 +45,14 @@ public class CollabRestController {
         List<PresenceTracker.UserPresenceInfo> active = presenceTracker.getActiveUsers(sheetId);
         return ResponseEntity.ok(active);
     }
+
+    @PostMapping("/leave")
+    public ResponseEntity<Void> leaveSheet(
+            @PathVariable String sheetId,
+            @RequestParam String userId,
+            @RequestParam(required = false, defaultValue = "Collaborator") String userName) {
+        log.info("REST request to leave sheet: sheetId={}, userId={}", sheetId, userId);
+        presenceTracker.handleLeave(sheetId, userId, userName);
+        return ResponseEntity.ok().build();
+    }
 }
