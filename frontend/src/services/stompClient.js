@@ -47,7 +47,7 @@ class StompCollaborationClient {
       return;
     }
 
-    const socketUrl = '/ws';
+    const socketUrl = import.meta.env.VITE_WS_URL || '/ws';
 
     try {
       const authState = useAuthStore.getState ? useAuthStore.getState() : {};
