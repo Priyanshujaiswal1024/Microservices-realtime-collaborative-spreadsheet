@@ -225,7 +225,7 @@ services:
       EUREKA_SERVER_URL: http://eureka-server:8761/eureka/
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
       SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
-      CORS_ALLOWED_ORIGINS: "https://brave-glacier-06be27500.1.azurestaticapps.net,http://localhost:5173,http://104.208.85.216,https://sheetforge-app.duckdns.org,http://sheetforge-app.duckdns.org"
+      CORS_ALLOWED_ORIGINS: "https://sheetforge-orcin.vercel.app,https://brave-glacier-06be27500.1.azurestaticapps.net,http://localhost:5173,http://104.208.85.216,https://sheetforge-app.duckdns.org,http://sheetforge-app.duckdns.org"
     entrypoint: ["java", "-Xmx256m", "-Xms64m", "-XX:+UseG1GC", "-jar", "app.jar"]
     networks:
       - collab-network
@@ -343,7 +343,7 @@ services:
       EUREKA_SERVER_URL: http://eureka-server:8761/eureka/
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
       SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
-      CORS_ALLOWED_ORIGINS: "https://brave-glacier-06be27500.1.azurestaticapps.net,http://localhost:5173,http://localhost:3000,http://104.208.85.216,https://sheetforge-app.duckdns.org,http://sheetforge-app.duckdns.org"
+      CORS_ALLOWED_ORIGINS: "https://sheetforge-orcin.vercel.app,https://brave-glacier-06be27500.1.azurestaticapps.net,http://localhost:5173,http://localhost:3000,http://104.208.85.216,https://sheetforge-app.duckdns.org,http://sheetforge-app.duckdns.org"
     entrypoint: ["java", "-Xmx256m", "-Xms64m", "-XX:+UseG1GC", "-jar", "app.jar"]
     networks:
       - collab-network
