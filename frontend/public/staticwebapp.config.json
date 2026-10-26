@@ -1,0 +1,29 @@
+{
+  "routes": [
+    {
+      "route": "/api/*",
+      "rewrite": "http://104.208.85.216:8088/api/"
+    },
+    {
+      "route": "/ws/*",
+      "rewrite": "http://104.208.85.216:8083/ws/"
+    },
+    {
+      "route": "/*",
+      "serve": "/index.html",
+      "statusCode": 200
+    }
+  ],
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": ["/images/*.{png,jpg,gif}", "/css/*"]
+  },
+  "globalHeaders": {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "*"
+  },
+  "mimeTypes": {
+    ".json": "text/json"
+  }
+}
