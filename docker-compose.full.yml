@@ -81,11 +81,11 @@ services:
     networks:
       - collab-network
     healthcheck:
-      test: kafka-broker-api-versions --bootstrap-server localhost:9092 || exit 1
-      interval: 15s
-      timeout: 15s
-      retries: 10
-      start_period: 30s
+      test: ["CMD-SHELL", "nc -z localhost 9092 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 60s
 
   mailhog:
     image: mailhog/mailhog:latest
