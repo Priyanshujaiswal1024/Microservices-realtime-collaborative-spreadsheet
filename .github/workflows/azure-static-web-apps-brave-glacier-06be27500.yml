@@ -33,8 +33,8 @@ jobs:
           output_location: "dist" # Built app content directory - optional
           ###### End of Repository/Build Configurations ######
         env:
-          VITE_API_URL: http://104.208.85.216
-          VITE_WS_URL: http://104.208.85.216/ws
+          VITE_API_URL: https://sheetforge-app.duckdns.org
+          VITE_WS_URL: https://sheetforge-app.duckdns.org/ws
 
   close_pull_request_job:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
